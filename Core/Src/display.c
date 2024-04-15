@@ -3,15 +3,17 @@
 
 #include "display.h"
 
+#include "util.h"
+
 struct DisplayState focusstate;
 struct DisplayState reststate;
 
-int SCREEN_LENGTH = 128;
-int SCREEN_WIDTH = 32;
+const int SCREEN_WIDTH = 128;
+const int SCREEN_HEIGHT = 32;
 
-int MILLI_HOUR = 3600000;
-int MILLI_MIN = 60000;
-int MILLI_SEC = 1000;
+const int Y = 9;
+const int FOCUS_X = 10;
+const int REST_X = (SCREEN_WIDTH / 2) + 10;
 
 void int_to_str(int num, char *str) {
     int i = 0, j, rem, len = 0, n;
@@ -30,48 +32,13 @@ void int_to_str(int num, char *str) {
     str[len] = '\0';
 }
 
-char get_display_number_from_selection(int selection) {
-
-    char display[20];
-
-    return display;
-}
-
-char get_display_number_from_elapsed_time() {
-
-    char display[20];
-
-    return display;
-}
-
-void render_header(struct PomodoroState pom) {
-    char new_header[20];
-
-    if (pom.mode == FOCUS_SELECT) {
-        char focustxt[] = "Selecting Focus";
-        memcpy(new_header, focustxt, sizeof(focustxt));
-    } else if (pom.mode == REST_SELECT) {
-        char resttxt[] = "Selecting Rest";
-        memcpy(new_header, resttxt, sizeof(resttxt));
-    } else if (pom.mode == FOCUSING) {
-        char focusingtxt[] = "Focusing";
-        memcpy(new_header, focusingtxt, sizeof(focusingtxt));
-    } else if (pom.mode == FOCUSING) {
-        char restingtxt[] = "Resting";
-        memcpy(new_header, restingtxt, sizeof(restingtxt));
-    }
-
-    SSD1306_GotoXY(0, 0);
-    SSD1306_Puts(new_header, &SSD1306_Font_7x10, 1);
-}
-
 /**
  * @brief  Updates the provided state to match the supplied timemilli.
  * @retval A boolean representing if the state was updated or not.
  */
-bool update_display(struct DisplayState *state, uint32_t timemilli) {
+bool update_dstate(struct DisplayState *state, uint32_t timemilli) {
 
-    if (state->totalmilli == timemilli) {
+    if (state->totalmilli / MILLI_SEC == timemilli / MILLI_SEC) {
         return false;
     }
 
@@ -87,44 +54,54 @@ bool update_display(struct DisplayState *state, uint32_t timemilli) {
     return true;
 }
 
-void render_focus() {
-    char str[5] = {0};
+void render_dstate_xy(struct DisplayState dstate, int x, int y) {
+    char str[5] = { 0 };
     int index = 0;
 
-    if (focusstate.hours > 0) {
+    if (dstate.hours > 0) {
         char hours[2];
-        int_to_str(focusstate.hours, hours);
+        int_to_str(dstate.hours, hours);
         hours[1] = ':';
         str[index++] = hours[0];
         str[index++] = hours[1];
-    } else {
+    } else if (dstate.minutes > 0) {
         strcat(str, "0:");
         index += 2;
     }
 
-    if (focusstate.minutes > 0) {
+    if (dstate.minutes > 0) {
         char mins[2];
-        int_to_str(focusstate.minutes, mins);
-        if (focusstate.minutes < 10) {
+        int_to_str(dstate.minutes, mins);
+        if (dstate.minutes < 10) {
             mins[1] = mins[0];
             mins[0] = '0';
         }
         str[index++] = mins[0];
         str[index++] = mins[1];
-    } else {
+    } else if (dstate.hours > 0) {
         strcat(str, "00");
         index += 2;
+    } else {
+        // Seconds count down.
+        strcat(str, "0:");
+        index += 2;
+        if (dstate.seconds > 0) {
+            char sec[2];
+            int_to_str(dstate.seconds, sec);
+            if (dstate.seconds < 10) {
+                sec[1] = sec[0];
+                sec[0] = '0';
+            }
+            str[index++] = sec[0];
+            str[index++] = sec[1];
+        } else {
+            strcat(str, "00");
+            index += 2;
+        }
     }
 
-    // Without this, a random extra character is added... I'm not sure why.
-    str[4] = ' ';
-
-    SSD1306_GotoXY(0, 13);
+    SSD1306_GotoXY(x, y);
     SSD1306_Puts(str, &SSD1306_Font_11x18, 1);
-}
-
-void render_rest() {
-
 }
 
 void render_time(uint32_t timemilli) {
@@ -136,29 +113,35 @@ void render_time(uint32_t timemilli) {
 }
 
 void Display_Init(struct PomodoroState pom) {
-    update_display(&focusstate, pom.focus * MILLI_MIN);
-    update_display(&reststate, pom.rest * MILLI_MIN);
+    update_dstate(&focusstate, 0);
+    update_dstate(&reststate, 0);
 }
 
 void Display_Sync(struct PomodoroState pom) {
 
-    SSD1306_Fill(SSD1306_COLOR_BLACK);
-    render_header(pom);
+    bool focus_did_change = false;
+    bool rest_did_change = false;
 
-    uint32_t focusmilli = pom.focus * MILLI_MIN;
-    uint32_t restmilli = pom.rest * MILLI_MIN;
+    uint32_t focusmilli = Util_ConvertMinToMilli(pom.focus);
+    uint32_t restmilli = Util_ConvertMinToMilli(pom.rest);
 
-    if (pom.mode == FOCUS_SELECT) {
-        update_display(&focusstate, focusmilli);
-    } else if (pom.mode == REST_SELECT) {
-        update_display(&reststate, restmilli);
+    if (pom.mode == FOCUS_SELECT || pom.mode == REST_SELECT) {
+        focus_did_change = update_dstate(&focusstate, focusmilli);
+        rest_did_change = update_dstate(&reststate, restmilli);
     } else if (pom.mode == FOCUSING) {
-        update_display(&focusstate, focusmilli - pom.elapsed_time);
+        focus_did_change = update_dstate(&focusstate, focusmilli - pom.elapsed_time);
+        rest_did_change = update_dstate(&reststate, restmilli);
     } else {
-        update_display(&reststate, restmilli - pom.elapsed_time);
+        focus_did_change = update_dstate(&focusstate, focusmilli);
+        rest_did_change = update_dstate(&reststate, restmilli - pom.elapsed_time);
     }
 
-    render_focus();
+    if (focus_did_change || rest_did_change) {
+        SSD1306_Fill(SSD1306_COLOR_BLACK);
 
-    SSD1306_UpdateScreen();
+        render_dstate_xy(focusstate, FOCUS_X, Y);
+        render_dstate_xy(reststate, REST_X, Y);
+
+        SSD1306_UpdateScreen();
+    }
 }
