@@ -21,7 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stdbool.h"
+#include "display.h"
+#include "fonts.h"
+#include "pomodoro.h"
+#include "rotaryencoder.h"
+#include "ssd1306.h"
 
 /* USER CODE END Includes */
 
@@ -46,6 +50,7 @@ I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
+struct PomodoroState pomodoro;
 
 /* USER CODE END PV */
 
@@ -61,145 +66,19 @@ static void MX_I2C1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int INCREMENTOR = 5;
-
-enum RotaryRotation {
-    DEC_ROTATION = 0, INC_ROTATION = 1, NONE = 2
-};
-
-enum PomodoroMode {
-    FOCUS_SELECT = 0, REST_SELECT = 1, FOCUSING = 2, RESTING = 3
-};
-
-struct RotaryEncoderState {
-    uint32_t position;
-    uint32_t prev_position;
-
-    bool pressed;
-    uint32_t last_pressed;
-    uint32_t last_released;
-};
-
-struct PomodoroState {
-    int focus;
-    int rest;
-    enum PomodoroMode mode;
-
-    bool paused;
-    uint32_t elapsed_time;
-    uint32_t prev_time;
-};
-
-struct PomodoroState pomodoro;
-struct RotaryEncoderState encoder;
-
-bool button_debounce(uint32_t curmilli) {
-    uint8_t debounce_time = 10;
-    return curmilli - encoder.last_pressed > debounce_time
-            && curmilli - encoder.last_released > debounce_time;
-}
-
-enum RotaryRotation get_rotate_dir(struct RotaryEncoderState encoder) {
-    if (encoder.prev_position == 0 && encoder.position == 65532) {
-        return DEC_ROTATION;
-    }
-    if (encoder.prev_position == 65532 && encoder.position == 0) {
-        return INC_ROTATION;
-    }
-    if (encoder.position > encoder.prev_position) {
-        return INC_ROTATION;
-    }
-    if (encoder.position < encoder.prev_position) {
-        return DEC_ROTATION;
-    }
-    return NONE;
-}
-
-void init_pomodoro(int focus, int rest, uint32_t curmilli) {
-    pomodoro.focus = focus;
-    pomodoro.rest = rest;
-    pomodoro.mode = FOCUS_SELECT;
-    pomodoro.paused = true;
-    pomodoro.elapsed_time = 0;
-    pomodoro.prev_time = curmilli;
-}
-
-void init_encoder() {
-    encoder.position = 0;
-    encoder.prev_position = 0;
-    encoder.last_pressed = 0;
-    encoder.last_released = 0;
-    encoder.pressed = false;
-}
-
-void on_encoder_rotate(uint32_t position) {
-    encoder.position = position;
-
-    if (pomodoro.mode == FOCUSING || pomodoro.mode == RESTING) {
-        return;
-    }
-
-    enum RotaryRotation dir = get_rotate_dir(encoder);
-    if (dir == INC_ROTATION) {
-        if (pomodoro.mode == FOCUS_SELECT) {
-            pomodoro.focus += INCREMENTOR;
-        } else {
-            pomodoro.rest += INCREMENTOR;
-        }
-    } else if (dir == DEC_ROTATION) {
-        if (pomodoro.mode == FOCUS_SELECT) {
-            pomodoro.focus -= INCREMENTOR;
-        } else {
-            pomodoro.rest -= INCREMENTOR;
-        }
-    }
-
-    encoder.prev_position = position;
-}
-
-void on_encoder_pressed(uint32_t curmilli) {
-
-    if (curmilli - encoder.last_pressed < 300) {
-        init_pomodoro(pomodoro.focus, pomodoro.rest, curmilli);
-    } else {
-
-        if (pomodoro.mode == FOCUS_SELECT) {
-            pomodoro.mode = REST_SELECT;
-        } else if (pomodoro.mode == REST_SELECT) {
-            pomodoro.mode = FOCUSING;
-            pomodoro.paused = false;
-            pomodoro.prev_time = curmilli;
-            pomodoro.elapsed_time = 0;
-        } else {
-            pomodoro.paused = !pomodoro.paused;
-            pomodoro.prev_time = curmilli;
-        }
-    }
-
-    encoder.last_pressed = curmilli;
-    encoder.pressed = true;
-}
-
-void on_encoder_released(uint32_t curmilli) {
-    encoder.last_released = curmilli;
-    encoder.pressed = false;
-}
-
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
     uint32_t position = __HAL_TIM_GET_COUNTER(htim);
     if (position % 4 == 0) {
-        on_encoder_rotate(position);
+        RotaryEncoder_Rotated(position, Pomodoro_IncTime, Pomodoro_DecTime);
     }
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     uint32_t curmilli = HAL_GetTick();
 
-    if (GPIO_Pin == GPIO_PIN_4 && button_debounce(curmilli)) {
-        if (!encoder.pressed
-                && HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_RESET) {
-            on_encoder_pressed(curmilli);
-        }
+    GPIO_PinState state = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4);
+    if (GPIO_Pin == GPIO_PIN_4 && state == GPIO_PIN_RESET) {
+        RotaryEncoder_ButtonPressed(curmilli, Pomodoro_Select, Pomodoro_Reset);
     }
 }
 
@@ -221,8 +100,6 @@ int main(void) {
     HAL_Init();
 
     /* USER CODE BEGIN Init */
-    init_encoder();
-    init_pomodoro(25, 5, 0);
 
     /* USER CODE END Init */
 
@@ -239,6 +116,12 @@ int main(void) {
     MX_I2C1_Init();
     /* USER CODE BEGIN 2 */
 
+    RotaryEncoder_Init();
+    Pomodoro_Init(25, 5, 0);
+    SSD1306_Init(&hi2c1);
+    Display_Init(pomodoro);
+
+
     HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
 
     /* USER CODE END 2 */
@@ -251,38 +134,9 @@ int main(void) {
         /* USER CODE BEGIN 3 */
         uint32_t curmilli = HAL_GetTick();
 
-        // Handle Release Button
-        if (encoder.pressed
-                && HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET
-                && button_debounce(curmilli)) {
-            on_encoder_released(HAL_GetTick());
-        }
-
-        // Handle pomodoro timers
-        if (!pomodoro.paused
-                && (pomodoro.mode == FOCUSING || pomodoro.mode == RESTING)) {
-
-            uint32_t target_time;
-            if (pomodoro.mode == FOCUSING) {
-                target_time = pomodoro.focus * 60 * 1000;
-//                target_time = pomodoro.focus * 1000;
-            } else {
-                target_time = pomodoro.rest * 60 * 1000;
-//                target_time = pomodoro.rest * 1000;
-            }
-
-            pomodoro.elapsed_time += curmilli - pomodoro.prev_time;
-            pomodoro.prev_time = curmilli;
-
-            if (pomodoro.elapsed_time >= target_time) {
-                if (pomodoro.mode == FOCUSING) {
-                    pomodoro.mode = RESTING;
-                } else {
-                    pomodoro.mode = FOCUSING;
-                }
-                pomodoro.elapsed_time = 0;
-            }
-        }
+        RotaryEncoder_Sync(curmilli, HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET);
+        Pomodoro_Sync(curmilli);
+        Display_Sync(pomodoro);
     }
     /* USER CODE END 3 */
 }
