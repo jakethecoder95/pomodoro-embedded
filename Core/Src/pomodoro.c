@@ -2,6 +2,8 @@
 
 #include "pomodoro.h"
 
+#include "util.h"
+
 extern struct PomodoroState pomodoro;
 
 int POMODORO_INCREMENTOR = 5;
@@ -65,11 +67,9 @@ void Pomodoro_Sync(uint32_t curmilli) {
 
         uint32_t target_time;
         if (pomodoro.mode == FOCUSING) {
-            target_time = pomodoro.focus * 60 * 1000;
-//                target_time = pomodoro.focus * 1000;
+            target_time = Util_ConvertMinToMilli(pomodoro.focus);
         } else {
-            target_time = pomodoro.rest * 60 * 1000;
-//                target_time = pomodoro.rest * 1000;
+            target_time = Util_ConvertMinToMilli(pomodoro.rest);
         }
 
         pomodoro.elapsed_time += curmilli - pomodoro.prev_time;
