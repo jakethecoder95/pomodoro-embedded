@@ -12,6 +12,10 @@ enum PomodoroMode {
     FOCUS_SELECT = 0, REST_SELECT = 1, FOCUSING = 2, RESTING = 3
 };
 
+enum PomodoroTimer {
+    FOCUS, REST
+};
+
 typedef struct PomodoroState {
     int focus;
     int rest;

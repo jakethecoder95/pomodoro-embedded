@@ -54,6 +54,60 @@ bool update_dstate(struct DisplayState *state, uint32_t timemilli) {
     return true;
 }
 
+void render_smart_line(struct DisplayState dstate, struct PomodoroState pom,
+        uint32_t curmilli) {
+
+    uint8_t color = 1;
+    uint16_t y = Y + 21;
+    uint16_t width = 4 * 11;
+    uint16_t height = 2;
+
+    if (dstate.type == FOCUS && (pom.mode == REST_SELECT || pom.mode == RESTING)) {
+        SSD1306_DrawRectangle(FOCUS_X, y, width, height, 0);
+        return;
+    }
+    if (dstate.type == REST && (pom.mode == FOCUS_SELECT || pom.mode == FOCUSING)) {
+        SSD1306_DrawRectangle(REST_X, y, width, height, 0);
+        return;
+    }
+
+    uint16_t x;
+    if (pom.mode == FOCUS_SELECT || pom.mode == FOCUSING) {
+        x = FOCUS_X;
+    } else {
+        x = REST_X;
+    }
+    SSD1306_DrawRectangle(x, y, width, height, 0);
+
+    if (pom.mode == FOCUS_SELECT || pom.mode == REST_SELECT) {
+        bool is_odd = ((curmilli % 1000) / 500) % 2 == 1;
+        if (is_odd) {
+            color = 0;
+        }
+    }
+
+    if (!pom.paused && (pom.mode == FOCUSING || pom.mode == RESTING)) {
+        uint16_t num = curmilli % 1000 / 25;
+
+        if (num <= 10) {
+            x += (width / 10) * num;
+            width -= (width / 10) * num;
+        } else if (num > 10 && num <= 20) {
+            num = 10 - (num - 10);
+            x += (width / 10) * num;
+            width -= (width / 10) * num;
+        } else if (num > 20 && num <= 30) {
+            num -= 20;
+            width -= (width / 10) * num;
+        } else if (num > 10 && num <= 40) {
+            num = 10 - (num - 30);
+            width -= (width / 10) * num;
+        }
+    }
+
+    SSD1306_DrawRectangle(x, y, width, height, color);
+}
+
 void render_dstate_xy(struct DisplayState dstate, int x, int y) {
     char str[5] = { 0 };
     int index = 0;
@@ -100,24 +154,19 @@ void render_dstate_xy(struct DisplayState dstate, int x, int y) {
         }
     }
 
+    SSD1306_DrawFilledRectangle(x, y, 11 * 4, 18, 0); // Clear existing number.
     SSD1306_GotoXY(x, y);
     SSD1306_Puts(str, &SSD1306_Font_11x18, 1);
 }
 
-void render_time(uint32_t timemilli) {
-    char str[20];
-    int_to_str(timemilli, str);
-
-    SSD1306_GotoXY(0, 13);
-    SSD1306_Puts(str, &SSD1306_Font_11x18, 1);
-}
-
 void Display_Init(struct PomodoroState pom) {
+    focusstate.type = FOCUS;
+    reststate.type = REST;
     update_dstate(&focusstate, 0);
     update_dstate(&reststate, 0);
 }
 
-void Display_Sync(struct PomodoroState pom) {
+void Display_Sync(struct PomodoroState pom, uint32_t curmilli) {
 
     bool focus_did_change = false;
     bool rest_did_change = false;
@@ -129,19 +178,22 @@ void Display_Sync(struct PomodoroState pom) {
         focus_did_change = update_dstate(&focusstate, focusmilli);
         rest_did_change = update_dstate(&reststate, restmilli);
     } else if (pom.mode == FOCUSING) {
-        focus_did_change = update_dstate(&focusstate, focusmilli - pom.elapsed_time);
+        focus_did_change = update_dstate(&focusstate,
+                focusmilli - pom.elapsed_time);
         rest_did_change = update_dstate(&reststate, restmilli);
     } else {
         focus_did_change = update_dstate(&focusstate, focusmilli);
-        rest_did_change = update_dstate(&reststate, restmilli - pom.elapsed_time);
+        rest_did_change = update_dstate(&reststate,
+                restmilli - pom.elapsed_time);
     }
+
+    render_smart_line(focusstate, pom, curmilli);
+    render_smart_line(reststate, pom, curmilli);
 
     if (focus_did_change || rest_did_change) {
-        SSD1306_Fill(SSD1306_COLOR_BLACK);
-
         render_dstate_xy(focusstate, FOCUS_X, Y);
         render_dstate_xy(reststate, REST_X, Y);
-
-        SSD1306_UpdateScreen();
     }
+
+    SSD1306_UpdateScreen();
 }

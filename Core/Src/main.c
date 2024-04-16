@@ -136,7 +136,7 @@ int main(void) {
 
         RotaryEncoder_Sync(curmilli, HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET);
         Pomodoro_Sync(curmilli);
-        Display_Sync(pomodoro);
+        Display_Sync(pomodoro, curmilli);
     }
     /* USER CODE END 3 */
 }

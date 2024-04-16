@@ -15,7 +15,7 @@ struct DisplayState {
     uint8_t minutes;
     uint8_t seconds;
     uint32_t totalmilli;
-    char header[15];
+    enum PomodoroTimer type;
 };
 
 /**
@@ -30,7 +30,7 @@ void Display_Init(struct PomodoroState pom);
  * @param  None
  * @retval None
  */
-void Display_Sync(struct PomodoroState pom);
+void Display_Sync(struct PomodoroState pom, uint32_t curmilli);
 
 /* C++ detection */
 #ifdef __cplusplus
