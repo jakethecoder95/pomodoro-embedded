@@ -15,46 +15,47 @@ const int Y = 9;
 const int FOCUS_X = 10;
 const int REST_X = (SCREEN_WIDTH / 2) + 10;
 
-void int_to_str(int num, char *str) {
-    int i = 0, j, rem, len = 0, n;
-
-    n = num;
-    while (n != 0) {
-        len++;
-        n /= 10;
-    }
-
-    for (j = 0; j < len; j++) {
-        rem = num % 10;
-        num = num / 10;
-        str[len - (j + 1)] = rem + '0';
-    }
-    str[len] = '\0';
-}
+int render_count;
+uint16_t prev_line_color;
+uint16_t prev_line_y;
+uint16_t prev_line_x;
+uint16_t prev_line_width;
+uint16_t prev_line_height;
 
 /**
  * @brief  Updates the provided state to match the supplied timemilli.
  * @retval A boolean representing if the state was updated or not.
  */
 bool update_dstate(struct DisplayState *state, uint32_t timemilli) {
-
-    if (state->totalmilli / MILLI_SEC == timemilli / MILLI_SEC) {
-        return false;
-    }
-
+    bool did_update = false;
     uint32_t time = timemilli;
+
     state->totalmilli = timemilli;
 
-    state->hours = time / MILLI_HOUR;
+    int new_hours = time / MILLI_HOUR;
+    if (new_hours != state->hours) {
+        did_update = true;
+    }
+    state->hours = new_hours;
     time -= state->hours * MILLI_HOUR;
-    state->minutes = time / MILLI_MIN;
+
+    int new_minutes = time / MILLI_MIN;
+    if (new_minutes != state->minutes) {
+        did_update = true;
+    }
+    state->minutes = new_minutes;
     time -= state->minutes * MILLI_MIN;
+
+    int new_seconds = time / MILLI_SEC;
+    if (new_seconds != state->seconds) {
+        did_update = true;
+    }
     state->seconds = time / MILLI_SEC;
 
-    return true;
+    return did_update;
 }
 
-void render_smart_line(struct DisplayState dstate, struct PomodoroState pom,
+bool render_smart_line(struct DisplayState dstate, struct PomodoroState pom,
         uint32_t curmilli) {
 
     uint8_t color = 1;
@@ -62,22 +63,12 @@ void render_smart_line(struct DisplayState dstate, struct PomodoroState pom,
     uint16_t width = 4 * 11;
     uint16_t height = 2;
 
-    if (dstate.type == FOCUS && (pom.mode == REST_SELECT || pom.mode == RESTING)) {
-        SSD1306_DrawRectangle(FOCUS_X, y, width, height, 0);
-        return;
-    }
-    if (dstate.type == REST && (pom.mode == FOCUS_SELECT || pom.mode == FOCUSING)) {
-        SSD1306_DrawRectangle(REST_X, y, width, height, 0);
-        return;
-    }
-
     uint16_t x;
     if (pom.mode == FOCUS_SELECT || pom.mode == FOCUSING) {
         x = FOCUS_X;
     } else {
         x = REST_X;
     }
-    SSD1306_DrawRectangle(x, y, width, height, 0);
 
     if (pom.mode == FOCUS_SELECT || pom.mode == REST_SELECT) {
         bool is_odd = ((curmilli % 1000) / 500) % 2 == 1;
@@ -105,7 +96,23 @@ void render_smart_line(struct DisplayState dstate, struct PomodoroState pom,
         }
     }
 
+    if (x == prev_line_x && y == prev_line_y && width == prev_line_width
+            && height == prev_line_height
+            && color == prev_line_color) {
+        return false;
+    }
+
+    SSD1306_DrawRectangle(prev_line_x, prev_line_y, prev_line_width, prev_line_height, 0);
+
+    prev_line_color = color;
+    prev_line_x = x;
+    prev_line_y = y;
+    prev_line_width = width;
+    prev_line_height = height;
+
     SSD1306_DrawRectangle(x, y, width, height, color);
+
+    return true;
 }
 
 void render_dstate_xy(struct DisplayState dstate, int x, int y) {
@@ -114,7 +121,7 @@ void render_dstate_xy(struct DisplayState dstate, int x, int y) {
 
     if (dstate.hours > 0) {
         char hours[2];
-        int_to_str(dstate.hours, hours);
+        Util_IntToStr(dstate.hours, hours);
         hours[1] = ':';
         str[index++] = hours[0];
         str[index++] = hours[1];
@@ -125,7 +132,7 @@ void render_dstate_xy(struct DisplayState dstate, int x, int y) {
 
     if (dstate.minutes > 0) {
         char mins[2];
-        int_to_str(dstate.minutes, mins);
+        Util_IntToStr(dstate.minutes, mins);
         if (dstate.minutes < 10) {
             mins[1] = mins[0];
             mins[0] = '0';
@@ -141,7 +148,7 @@ void render_dstate_xy(struct DisplayState dstate, int x, int y) {
         index += 2;
         if (dstate.seconds > 0) {
             char sec[2];
-            int_to_str(dstate.seconds, sec);
+            Util_IntToStr(dstate.seconds, sec);
             if (dstate.seconds < 10) {
                 sec[1] = sec[0];
                 sec[0] = '0';
@@ -187,13 +194,16 @@ void Display_Sync(struct PomodoroState pom, uint32_t curmilli) {
                 restmilli - pom.elapsed_time);
     }
 
-    render_smart_line(focusstate, pom, curmilli);
-    render_smart_line(reststate, pom, curmilli);
-
-    if (focus_did_change || rest_did_change) {
+    bool did_time_update = focus_did_change || rest_did_change;
+    if (did_time_update) {
         render_dstate_xy(focusstate, FOCUS_X, Y);
         render_dstate_xy(reststate, REST_X, Y);
     }
 
-    SSD1306_UpdateScreen();
+    bool did_line_update = render_smart_line(focusstate, pom, curmilli);
+
+    if (did_line_update || did_time_update) {
+        render_count++;
+        SSD1306_UpdateScreen();
+    }
 }
