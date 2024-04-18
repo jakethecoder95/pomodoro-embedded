@@ -18,6 +18,14 @@ extern const uint32_t MILLI_SEC;
  */
 uint32_t Util_ConvertMinToMilli(int minutes);
 
+/**
+ * @brief  Converts a number into a string.
+ * @param  num is the number to be converted.
+ * @param  str is the string to be updated.
+ * @retval None
+ */
+void Util_IntToStr(int num, char *str);
+
 /* C++ detection */
 #ifdef __cplusplus
 }
