@@ -7,6 +7,8 @@
 extern struct PomodoroState pomodoro;
 
 int POMODORO_INCREMENTOR = 5;
+int MIN_TIME = 5; // 5min
+int MAX_TIME = 180; // 3hrs
 
 void Pomodoro_Init(int focus, int rest, uint32_t curmilli) {
     pomodoro.focus = focus;
@@ -27,9 +29,9 @@ void Pomodoro_IncTime() {
         return;
     }
 
-    if (pomodoro.mode == FOCUS_SELECT) {
+    if (pomodoro.mode == FOCUS_SELECT && pomodoro.focus != MAX_TIME) {
         pomodoro.focus += POMODORO_INCREMENTOR;
-    } else {
+    } else if (pomodoro.rest != MAX_TIME) {
         pomodoro.rest += POMODORO_INCREMENTOR;
     }
 }
@@ -39,9 +41,9 @@ void Pomodoro_DecTime() {
         return;
     }
 
-    if (pomodoro.mode == FOCUS_SELECT) {
+    if (pomodoro.mode == FOCUS_SELECT && pomodoro.focus != MIN_TIME) {
         pomodoro.focus -= POMODORO_INCREMENTOR;
-    } else {
+    } else if (pomodoro.rest != MIN_TIME) {
         pomodoro.rest -= POMODORO_INCREMENTOR;
     }
 }
